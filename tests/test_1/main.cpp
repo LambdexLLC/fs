@@ -15,10 +15,7 @@ int main()
 	};
 
 	auto _key = fs::monitor_directory(*_monitor, TEST_SOURCE_ROOT);
-	for (int n = 0; n != 1000; ++n)
-	{
-		fs::wait(*_monitor);
-	};
+
 
 	fs::delete_file_monitor(_monitor);
 	return 0;
