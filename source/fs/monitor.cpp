@@ -28,13 +28,16 @@ namespace lbx
 		{
 			return _monitor.monitor_directory(_path, _recursive);
 		};
-		void poll(file_monitor& _monitor)
+		void stop_monitoring(file_monitor& _monitor, size_t _key)
 		{
-			
+			_monitor.erase(_key);
 		};
-		void wait(file_monitor& _monitor)
+
+		// Returns how many changes were written to the buffer.
+		size_t get_changes(file_monitor& _monitor, file_change* _outBuffer, size_t _bufferLen)
 		{
-			std::this_thread::sleep_for(std::chrono::seconds(1));
+			return _monitor.get_changes(_outBuffer, _bufferLen);
 		};
+
 	};
 };

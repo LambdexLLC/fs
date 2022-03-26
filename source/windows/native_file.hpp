@@ -69,7 +69,7 @@ namespace lbx
 			{
 			public:
 
-				void on_change(DWORD _bytesTransferred);
+				void on_change(file_monitor_data& _monitor, DWORD _bytesTransferred);
 
 				monitor_key key() const { return this->key_; };
 
@@ -108,13 +108,17 @@ namespace lbx
 
 			void erase(monitor_key _key);
 
+			void write_change(file_change _change);
+			size_t get_changes(file_change*& _outBuffer, size_t _bufferLen);
+
 			file_monitor_data() = default;
 
 		private:
 
 			native::unique_io_port port_;
 			std::vector<std::pair<monitor_key, std::unique_ptr<monitor_data>>> monitoring_;
-		
+			std::vector<file_change> changes_{};
+
 			monitor_key key_counter_ = 0;
 		};
 
@@ -144,6 +148,8 @@ namespace lbx
 			monitor_key monitor_directory(const char* _path, bool _recursive);
 
 			void erase(monitor_key _key);
+			
+			size_t get_changes(file_change*& _outBuffer, size_t _bufferLen);
 
 			file_monitor() = default;
 

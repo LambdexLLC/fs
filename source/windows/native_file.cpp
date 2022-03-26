@@ -179,7 +179,25 @@ namespace lbx
 
 	namespace fs
 	{
-		void file_monitor_data::monitor_data::on_change(DWORD _bytesTransferred)
+		inline std::string wtos(const std::wstring_view _wstr)
+		{
+			std::string o{};
+			for (auto& v : _wstr)
+			{
+				if (v < 255)
+				{
+					o += (char)v;
+				}
+				else
+				{
+					o += '?';
+				};
+			};
+			return o;
+		};
+
+
+		void file_monitor_data::monitor_data::on_change(file_monitor_data& _monitor, DWORD _bytesTransferred)
 		{
 			BYTE* _buffer = reinterpret_cast<BYTE*>(this->notify_buffer_.data());
 			FILE_NOTIFY_INFORMATION* _info = nullptr; //reinterpret_cast<FILE_NOTIFY_INFORMATION*>(_buffer);
@@ -189,16 +207,22 @@ namespace lbx
 				_info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(_buffer);
 
 				auto _action = _info->Action;
+				auto _path = wtos(std::wstring_view(_info->FileName, _info->FileNameLength));
+
 				switch (_action)
 				{
 				case FILE_ACTION_ADDED:
-					std::wcout << L"Added : " << std::wstring_view(_info->FileName, (size_t)_info->FileNameLength) << '\n';
-					break;
+				{
+					_monitor.write_change(file_change::add(this->key(), _path));
+				};
+				break;
 				case FILE_ACTION_REMOVED:
 					break;
 				case FILE_ACTION_MODIFIED:
-					std::wcout << L"Modified : " << std::wstring_view(_info->FileName, (size_t)_info->FileNameLength) << '\n';
-					break;
+				{
+					_monitor.write_change(file_change::change(this->key(), _path));
+				};
+				break;
 				case FILE_ACTION_RENAMED_OLD_NAME:
 
 					break;
@@ -308,7 +332,7 @@ namespace lbx
 					auto _data = this->find(_key);
 					if (_data)
 					{
-						_data->on_change(_bytesTransferred);
+						_data->on_change(*this, _bytesTransferred);
 					};
 				};
 			}
@@ -365,6 +389,21 @@ namespace lbx
 			return o;
 		};
 
+		void file_monitor_data::write_change(file_change _change)
+		{
+			this->changes_.push_back(std::move(_change));
+		};
+		size_t file_monitor_data::get_changes(file_change*& _outBuffer, size_t _bufferLen)
+		{
+			auto _count = std::min(this->changes_.size(), _bufferLen);
+			for (size_t n = 0; n != _count; ++n)
+			{
+				_outBuffer[n] = this->changes_.at(n);
+			};
+			this->changes_.erase(this->changes_.begin(), this->changes_.begin() + _count);
+			return _count;
+		};
+
 		void file_monitor_data::erase(monitor_key _key)
 		{
 			auto& _data = this->monitoring_;
@@ -384,6 +423,8 @@ namespace lbx
 	{
 		void file_monitor::thread_main(ThreadData* _data)
 		{
+			const auto _updateFrequency = std::chrono::milliseconds(1);
+
 			auto& _stopFlag = _data->stop_flag;
 			auto& _initFlag = _data->init_flag;
 			auto& _mtx = _data->mtx;
@@ -398,8 +439,11 @@ namespace lbx
 
 			while (!_stopFlag)
 			{
-				auto lck = std::unique_lock(_mtx);
-				_monitor.wait(100);
+				{
+					auto lck = std::unique_lock(_mtx);
+					_monitor.poll();
+				};
+				std::this_thread::sleep_for(_updateFrequency);
 			};
 
 			{
@@ -441,6 +485,14 @@ namespace lbx
 			auto lck = std::unique_lock(_data.mtx);
 			_data.monitor.erase(_key);
 		};
+
+		size_t file_monitor::get_changes(file_change*& _outBuffer, size_t _bufferLen)
+		{
+			auto& _data = *this->data_;
+			auto lck = std::unique_lock(_data.mtx);
+			return _data.monitor.get_changes(_outBuffer, _bufferLen);
+		};
+
 	};
 
 };

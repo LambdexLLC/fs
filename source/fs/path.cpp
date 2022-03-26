@@ -35,6 +35,10 @@ namespace lbx
 				if (_last == '/' || _last == '\\')
 				{
 					_parent.remove_suffix(1);
+				}
+				else
+				{
+					break;
 				};
 			};
 
