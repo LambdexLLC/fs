@@ -179,11 +179,12 @@ namespace lbx
 
 	namespace fs
 	{
-		inline std::string wtos(const std::wstring_view _wstr)
+		inline std::string wtos(const wchar_t* _wstr, size_t _lengthBytes)
 		{
 			std::string o{};
-			for (auto& v : _wstr)
+			for (size_t n = 0; n != _lengthBytes; n += 2)
 			{
+				auto& v = _wstr[n >> 1];
 				if (v < 255)
 				{
 					o += (char)v;
@@ -207,7 +208,7 @@ namespace lbx
 				_info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(_buffer);
 
 				auto _action = _info->Action;
-				auto _path = wtos(std::wstring_view(_info->FileName, _info->FileNameLength));
+				auto _path = wtos(_info->FileName, _info->FileNameLength);
 
 				switch (_action)
 				{
