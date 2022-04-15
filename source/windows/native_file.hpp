@@ -6,19 +6,14 @@
 
 /** @file */
 
+#include "native_path.hpp"
+
 #include <lbx/fs/file.hpp>
 #include <lbx/fs/monitor.hpp>
-#include <lbx/fs/detail/assert.hpp>
 
-#include <memory>
-#include <vector>
-#include <array>
 #include <mutex>
 #include <atomic>
 #include <thread>
-
-#include "io.hpp"
-#include "win_lib.hpp"
 
 namespace lbx
 {

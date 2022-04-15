@@ -17,7 +17,25 @@ namespace lbx
 			if (_errc) { on_unhandled_error(_errc); };
 			return o;
 		};
+
+
 		
+		bool create_file(const char* _path, file_type _type, bool _recursive)
+		{
+			return native::create_file(_path, _type, _recursive);
+		};
+
+		bool create_file(const char* _path, bool _recursive)
+		{
+			return create_file(_path, file_type::file, _recursive);
+		};
+
+		bool create_directory(const char* _path, bool _recursive)
+		{
+			return create_file(_path, file_type::directory, _recursive);
+		};
+
+
 		inline std::string_view parent(const std::string_view& _path)
 		{
 			auto _parent = _path;
@@ -49,5 +67,9 @@ namespace lbx
 			return parent(std::string_view(_path));
 		};
 
+		bool exists(const char* _path)
+		{
+			return native::exists(_path);
+		};
 	};
 };
