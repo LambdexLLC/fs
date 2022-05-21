@@ -18,8 +18,47 @@ namespace lbx
 
 		file_monitor* new_file_monitor();
 		void delete_file_monitor(file_monitor*& _ptr);
-		
+
+
+
+		/**
+		 * @brief Bitflags for change types
+		*/
+		enum class file_change_flag : uint8_t
+		{
+			add		= 0x01,
+			remove	= 0x02,
+			rename	= 0x04,
+			modify	= 0x08,
+			all		= 0x0F
+		};
+
+		constexpr file_change_flag operator&(file_change_flag lhs, file_change_flag rhs)
+		{
+			return file_change_flag((uint8_t)lhs & (uint8_t)rhs);
+		};
+		constexpr file_change_flag operator|(file_change_flag lhs, file_change_flag rhs)
+		{
+			return file_change_flag((uint8_t)lhs | (uint8_t)rhs);
+		};
+		constexpr file_change_flag operator^(file_change_flag lhs, file_change_flag rhs)
+		{
+			return file_change_flag((uint8_t)lhs ^ (uint8_t)rhs);
+		};
+		constexpr file_change_flag operator~(file_change_flag rhs)
+		{
+			return file_change_flag(~(uint8_t)rhs);
+		};
+
+
+		// TODO : Doc
+		size_t monitor_directory(file_monitor& _monitor, const char* _path, file_change_flag _changes, bool _recursive = false);
+
+		// TODO : Doc
+		// flags are defaulted to "all"
 		size_t monitor_directory(file_monitor& _monitor, const char* _path, bool _recursive = false);
+		
+		// TODO : Doc
 		void stop_monitoring(file_monitor& _monitor, size_t _key);
 
 		enum class file_change_type
@@ -127,6 +166,7 @@ namespace lbx
 		private:
 			vt vt_;
 		};
+
 
 
 		// Returns how many changes were written to the buffer.

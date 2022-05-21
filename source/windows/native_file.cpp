@@ -201,38 +201,110 @@ namespace lbx
 		void file_monitor_data::monitor_data::on_change(file_monitor_data& _monitor, DWORD _bytesTransferred)
 		{
 			BYTE* _buffer = reinterpret_cast<BYTE*>(this->notify_buffer_.data());
-			FILE_NOTIFY_INFORMATION* _info = nullptr; //reinterpret_cast<FILE_NOTIFY_INFORMATION*>(_buffer);
+			NotifyInfo* _info = nullptr;
+
+			// Storage for the old file name 
+			auto& _oldFileName = this->old_name_;
 
 			while (true)
 			{
-				_info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(_buffer);
-
+				_info = reinterpret_cast<NotifyInfo*>(_buffer);
 				auto _action = _info->Action;
-				auto _path = wtos(_info->FileName, _info->FileNameLength);
+				
+				// Wide character path view
+				auto _wPath = std::wstring_view(_info->FileName, _info->FileNameLength);
 
+
+				// Regular character path
+				auto _path = wtos(_info->FileName, _info->FileNameLength);
 				switch (_action)
 				{
 				case FILE_ACTION_ADDED:
 				{
+					// Skip if change flag not set
+					if ((this->change_filter_ & file_change_flag::add) != file_change_flag::add)
+					{
+						break;
+					};
+
+					// File was created
 					_monitor.write_change(file_change::add(this->key(), _path));
 				};
 				break;
 				case FILE_ACTION_REMOVED:
-					break;
+				{
+					// Skip if change flag not set
+					if ((this->change_filter_ & file_change_flag::remove) != file_change_flag::remove)
+					{
+						break;
+					};
+
+					// File was removed
+					_monitor.write_change(file_change::remove(this->key(), _path));
+				};
+				break;
 				case FILE_ACTION_MODIFIED:
 				{
+					// Skip if change flag not set
+					if ((this->change_filter_ & file_change_flag::modify) != file_change_flag::modify)
+					{
+						break;
+					};
+
+					// File was modified
 					_monitor.write_change(file_change::change(this->key(), _path));
 				};
 				break;
 				case FILE_ACTION_RENAMED_OLD_NAME:
+				{
+					// Skip if change flag not set
+					if ((this->change_filter_ & file_change_flag::rename) != file_change_flag::rename)
+					{
+						_oldFileName.reset();
+						break;
+					};
 
-					break;
+					// Check that we weren't already processing a name change
+					if (_oldFileName) 
+					{
+#ifndef NDEBUG
+						__debugbreak();
+#endif
+					}
+					else
+					{
+						_oldFileName = _wPath;
+					};
+				};
+				break;
 				case FILE_ACTION_RENAMED_NEW_NAME:
-					break;
+				{
+					// Skip if change flag not set
+					if ((this->change_filter_ & file_change_flag::rename) != file_change_flag::rename)
+					{
+						_oldFileName.reset();
+						break;
+					};
+
+					// Check that we ARE already processing a name change
+					if (!_oldFileName)
+					{
+#ifndef NDEBUG
+						__debugbreak();
+#endif
+					}
+					else
+					{
+						const auto _oldName = wtos(_oldFileName->data(), _oldFileName->size() * sizeof(wchar_t));
+						_monitor.write_change(file_change::rename(this->key(), _oldName, _path));
+					};
+				};
+				break;
 				default:
 					break;
 				};
 
+				// Move to next change info
 				if (const auto _offset = _info->NextEntryOffset; _offset == 0)
 				{
 					break;
@@ -243,6 +315,7 @@ namespace lbx
 				};
 			};
 
+			// Set flag so that the monitor gets refreshed.
 			this->needs_refresh_ = true;
 		};
 
@@ -250,14 +323,15 @@ namespace lbx
 		{
 			if (this->needs_refresh_)
 			{
-				const auto r = ReadDirectoryChangesW(this->file_.get(),
+				const auto r = ReadDirectoryChangesExW(this->file_.get(),
 					this->notify_buffer_.data(),
 					this->notify_buffer_.size() * sizeof(DWORD),
 					this->recursive_,
-					FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
+					this->notify_filter_,
 					NULL,
 					&this->overlapped_,
-					NULL);
+					NULL,
+					this->notify_info_struct_type_v);
 				
 				_errc = native::get_last_error();
 				if (_errc.code() == WAIT_TIMEOUT)
@@ -357,7 +431,7 @@ namespace lbx
 			this->wait(INFINITE);
 		};
 
-		monitor_key file_monitor_data::monitor_directory(const char* _path, bool _recursive, error_code& _errc)
+		monitor_key file_monitor_data::monitor_directory(const char* _path, file_change_flag _changes, bool _recursive, error_code& _errc)
 		{
 			native::open_info _openInfo{};
 			_openInfo.overlapped_io = true;
@@ -378,14 +452,21 @@ namespace lbx
 			{
 				return 0;
 			};
-			this->insert(std::unique_ptr<monitor_data>(new monitor_data(std::move(_file), _key)));
+
+			// Make filter
+			const DWORD _notifyFilter =
+					FILE_NOTIFY_CHANGE_FILE_NAME |
+					FILE_NOTIFY_CHANGE_DIR_NAME |
+					FILE_NOTIFY_CHANGE_LAST_WRITE |
+					FILE_NOTIFY_CHANGE_CREATION;
+			this->insert(std::unique_ptr<monitor_data>(new monitor_data(std::move(_file), _key, _notifyFilter, _changes, _recursive)));
 
 			return _key;
 		};
-		monitor_key file_monitor_data::monitor_directory(const char* _path, bool _recursive)
+		monitor_key file_monitor_data::monitor_directory(const char* _path, file_change_flag _changes, bool _recursive)
 		{
 			error_code _errc{};
-			auto o = this->monitor_directory(_path, _recursive, _errc);
+			auto o = this->monitor_directory(_path, _changes, _recursive, _errc);
 			if (_errc) { on_unhandled_error(_errc); };
 			return o;
 		};
@@ -466,16 +547,16 @@ namespace lbx
 			this->thread_.join();
 		};
 
-		monitor_key file_monitor::monitor_directory(const char* _path, bool _recursive, error_code& _errc)
+		monitor_key file_monitor::monitor_directory(const char* _path, file_change_flag _changes, bool _recursive, error_code& _errc)
 		{
 			auto& _data = *this->data_;
 			auto lck = std::unique_lock(_data.mtx);
-			return _data.monitor.monitor_directory(_path, _recursive, _errc);
+			return _data.monitor.monitor_directory(_path, _changes, _recursive, _errc);
 		};
-		monitor_key file_monitor::monitor_directory(const char* _path, bool _recursive)
+		monitor_key file_monitor::monitor_directory(const char* _path, file_change_flag _changes, bool _recursive)
 		{
 			error_code _errc{};
-			auto o = this->monitor_directory(_path, _recursive, _errc);
+			auto o = this->monitor_directory(_path, _changes, _recursive, _errc);
 			if (_errc) { on_unhandled_error(_errc); };
 			return o;
 		};
